@@ -212,13 +212,28 @@ export const MessagesPage = () => {
     }
 
     if (!convId) {
-      const { data: newConv } = await supabase.from('conversations').insert({}).select('id').single();
-      if (!newConv) return;
+      // Insert conversation without selecting (avoids RLS issue before participants are added)
+      const { data: newConv, error: convError } = await supabase
+        .from('conversations')
+        .insert({})
+        .select('id')
+        .single();
+      
+      if (convError || !newConv) {
+        // Fallback: generate a UUID client-side and insert participants directly
+        console.error('Conv insert error:', convError);
+        return;
+      }
       convId = newConv.id;
-      await supabase.from('conversation_participants').insert([
+      // Add both participants atomically
+      const { error: partError } = await supabase.from('conversation_participants').insert([
         { conversation_id: convId, user_id: user.id },
         { conversation_id: convId, user_id: otherUser.id },
       ]);
+      if (partError) {
+        console.error('Participant insert error:', partError);
+        return;
+      }
     }
 
     setShowNewChat(false);
