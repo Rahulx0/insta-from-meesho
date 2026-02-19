@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { PostCard } from '@/components/PostCard';
+import { StoriesBar } from '@/components/StoriesBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 
@@ -64,6 +65,7 @@ export const FeedPage = () => {
     <div className="flex gap-8 max-w-5xl mx-auto px-4 py-6">
       {/* Feed */}
       <div className="flex-1 max-w-[470px]">
+        <StoriesBar />
         {posts.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">
             <p className="text-lg font-semibold mb-1">No posts yet</p>
@@ -152,7 +154,7 @@ const SuggestionRow = ({ suggestion, onFollowed }: { suggestion: any; onFollowed
         <p className="text-xs text-muted-foreground truncate">Suggested for you</p>
       </div>
       {!following ? (
-        <button onClick={follow} className="text-xs font-semibold text-blue-500 hover:text-blue-700 flex-shrink-0">
+        <button onClick={follow} className="text-xs font-semibold text-primary hover:opacity-70 flex-shrink-0">
           Follow
         </button>
       ) : (
