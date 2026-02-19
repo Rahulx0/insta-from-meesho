@@ -176,12 +176,25 @@ export const MessagesPage = () => {
     e.preventDefault();
     if (!user || !selectedConv || !newMessage.trim()) return;
     setSending(true);
-    await supabase.from('messages').insert({
+    const content = newMessage.trim();
+    setNewMessage('');
+    // Optimistically add message to UI
+    const tempMsg: Message = {
+      id: `temp-${Date.now()}`,
+      sender_id: user.id,
+      content,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempMsg]);
+    const { data: inserted } = await supabase.from('messages').insert({
       conversation_id: selectedConv.id,
       sender_id: user.id,
-      content: newMessage.trim(),
-    });
-    setNewMessage('');
+      content,
+    }).select('*').single();
+    // Replace temp message with real one
+    if (inserted) {
+      setMessages((prev) => prev.map((m) => m.id === tempMsg.id ? inserted : m));
+    }
     setSending(false);
     fetchConversations();
   };
@@ -189,58 +202,25 @@ export const MessagesPage = () => {
   const startConversation = async (otherUser: SearchUser) => {
     if (!user) return;
 
-    // Check if conversation already exists between the two users
-    const { data: myConvs } = await supabase
-      .from('conversation_participants')
-      .select('conversation_id')
-      .eq('user_id', user.id);
+    // Use atomic security-definer function to avoid RLS chicken-and-egg problem
+    const { data: convId, error } = await supabase.rpc('create_conversation_with_participants', {
+      other_user_id: otherUser.id,
+    });
 
-    const myConvIds = myConvs?.map((c) => c.conversation_id) || [];
-
-    let convId: string | null = null;
-
-    if (myConvIds.length > 0) {
-      const { data: existing } = await supabase
-        .from('conversation_participants')
-        .select('conversation_id')
-        .eq('user_id', otherUser.id)
-        .in('conversation_id', myConvIds);
-
-      if (existing && existing.length > 0) {
-        convId = existing[0].conversation_id;
-      }
-    }
-
-    if (!convId) {
-      // Insert conversation without selecting (avoids RLS issue before participants are added)
-      const { data: newConv, error: convError } = await supabase
-        .from('conversations')
-        .insert({})
-        .select('id')
-        .single();
-      
-      if (convError || !newConv) {
-        // Fallback: generate a UUID client-side and insert participants directly
-        console.error('Conv insert error:', convError);
-        return;
-      }
-      convId = newConv.id;
-      // Add both participants atomically
-      const { error: partError } = await supabase.from('conversation_participants').insert([
-        { conversation_id: convId, user_id: user.id },
-        { conversation_id: convId, user_id: otherUser.id },
-      ]);
-      if (partError) {
-        console.error('Participant insert error:', partError);
-        return;
-      }
+    if (error || !convId) {
+      console.error('Failed to create conversation:', error);
+      return;
     }
 
     setShowNewChat(false);
     setSearchQuery('');
     setSearchResults([]);
+    const convIdStr = convId as string;
     await fetchConversations();
-    setSelectedConv({ id: convId, updated_at: new Date().toISOString(), otherUser });
+    const conv = { id: convIdStr, updated_at: new Date().toISOString(), otherUser };
+    setSelectedConv(conv);
+    // Manually fetch messages for this conversation since selectedConv may not change
+    fetchMessages(convIdStr);
   };
 
   return (
