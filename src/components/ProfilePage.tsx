@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Grid3X3, Settings } from 'lucide-react';
+import { Grid3X3, Settings, MessageCircle } from 'lucide-react';
 import { EditProfileModal } from './EditProfileModal';
 
 export const ProfilePage = () => {
+  const navigate = useNavigate();
   const { userId } = useParams<{ userId: string }>();
   const { user } = useAuth();
   const [profile, setProfile] = useState<any>(null);
@@ -121,13 +122,23 @@ export const ProfilePage = () => {
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                variant={isFollowing ? 'outline' : 'default'}
-                onClick={toggleFollow}
-              >
-                {isFollowing ? 'Following' : 'Follow'}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={isFollowing ? 'outline' : 'default'}
+                  onClick={toggleFollow}
+                >
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigate('/messages')}
+                >
+                  <MessageCircle size={15} className="mr-1" />
+                  Message
+                </Button>
+              </div>
             )}
           </div>
 
@@ -144,7 +155,7 @@ export const ProfilePage = () => {
             <p className="text-sm whitespace-pre-wrap">{profile.bio}</p>
           )}
           {profile.website && (
-            <a href={profile.website} className="text-sm font-semibold text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+            <a href={profile.website} className="text-sm font-semibold text-primary hover:underline" target="_blank" rel="noopener noreferrer">
               {profile.website}
             </a>
           )}

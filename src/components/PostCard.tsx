@@ -205,7 +205,7 @@ export const PostCard = ({ post }: PostCardProps) => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="text-sm font-semibold text-blue-500 hover:text-blue-700"
+                className="text-sm font-semibold text-primary hover:opacity-70"
               >
                 Post
               </button>
