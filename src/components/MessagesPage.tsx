@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatDistanceToNow } from 'date-fns';
 import { Send, Edit, ArrowLeft, MessageCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -9,11 +8,7 @@ import { Link } from 'react-router-dom';
 interface Conversation {
   id: string;
   updated_at: string;
-  otherUser: {
-    id: string;
-    username: string;
-    avatar_url: string | null;
-  };
+  otherUser: { id: string; username: string; avatar_url: string | null };
   lastMessage?: string;
   isOwn?: boolean;
 }
@@ -25,21 +20,13 @@ interface Message {
   created_at: string;
 }
 
-interface FollowUser {
+interface SearchUser {
   id: string;
   username: string;
   avatar_url: string | null;
 }
 
-const UserAvatar = ({
-  url,
-  name,
-  className = 'w-10 h-10',
-}: {
-  url: string | null;
-  name: string;
-  className?: string;
-}) => (
+const UserAvatar = ({ url, name, className = 'w-10 h-10' }: { url: string | null; name: string; className?: string }) => (
   <div className={`${className} rounded-full bg-muted overflow-hidden flex-shrink-0`}>
     {url ? (
       <img src={url} alt={name} className="w-full h-full object-cover" />
@@ -60,17 +47,34 @@ export const MessagesPage = () => {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
-  const [followedUsers, setFollowedUsers] = useState<FollowUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (user) {
-      fetchConversations();
-      fetchFollowedUsers();
-    }
+    if (user) fetchConversations();
   }, [user]);
 
+  // Search all users when typing in new chat modal
+  useEffect(() => {
+    if (!showNewChat || !searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .neq('id', user.id)
+        .ilike('username', `%${searchQuery.trim()}%`)
+        .limit(15);
+      setSearchResults(data || []);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, showNewChat, user]);
+
+  // Real-time messages for selected conversation
   useEffect(() => {
     if (!selectedConv) return;
     fetchMessages(selectedConv.id);
@@ -94,18 +98,9 @@ export const MessagesPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const fetchFollowedUsers = async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from('follows')
-      .select('following_id, profiles!follows_following_id_fkey(id, username, avatar_url)')
-      .eq('follower_id', user.id);
-
-    setFollowedUsers((data || []).map((d: any) => d.profiles).filter(Boolean));
-  };
-
   const fetchConversations = async () => {
     if (!user) return;
+
     const { data: participantData } = await supabase
       .from('conversation_participants')
       .select('conversation_id')
@@ -123,12 +118,14 @@ export const MessagesPage = () => {
 
     const otherUserIds = [...new Set(allParticipants?.map((p) => p.user_id) || [])];
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, username, avatar_url')
-      .in('id', otherUserIds);
-
-    const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
+    let profileMap: Record<string, SearchUser> = {};
+    if (otherUserIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .in('id', otherUserIds);
+      profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
+    }
 
     const { data: convData } = await supabase
       .from('conversations')
@@ -186,13 +183,13 @@ export const MessagesPage = () => {
     });
     setNewMessage('');
     setSending(false);
-    // refresh conversations list to update last message
     fetchConversations();
   };
 
-  const startConversation = async (otherUserId: string) => {
+  const startConversation = async (otherUser: SearchUser) => {
     if (!user) return;
 
+    // Check if conversation already exists between the two users
     const { data: myConvs } = await supabase
       .from('conversation_participants')
       .select('conversation_id')
@@ -200,67 +197,48 @@ export const MessagesPage = () => {
 
     const myConvIds = myConvs?.map((c) => c.conversation_id) || [];
 
-    let convId: string;
+    let convId: string | null = null;
 
     if (myConvIds.length > 0) {
       const { data: existing } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
-        .eq('user_id', otherUserId)
+        .eq('user_id', otherUser.id)
         .in('conversation_id', myConvIds);
 
       if (existing && existing.length > 0) {
         convId = existing[0].conversation_id;
-      } else {
-        const { data: newConv } = await supabase.from('conversations').insert({}).select('id').single();
-        if (!newConv) return;
-        convId = newConv.id;
-        await supabase.from('conversation_participants').insert([
-          { conversation_id: convId, user_id: user.id },
-          { conversation_id: convId, user_id: otherUserId },
-        ]);
       }
-    } else {
+    }
+
+    if (!convId) {
       const { data: newConv } = await supabase.from('conversations').insert({}).select('id').single();
       if (!newConv) return;
       convId = newConv.id;
       await supabase.from('conversation_participants').insert([
         { conversation_id: convId, user_id: user.id },
-        { conversation_id: convId, user_id: otherUserId },
+        { conversation_id: convId, user_id: otherUser.id },
       ]);
     }
 
     setShowNewChat(false);
     setSearchQuery('');
+    setSearchResults([]);
     await fetchConversations();
-
-    const { data: profile } = await supabase.from('profiles').select('id, username, avatar_url').eq('id', otherUserId).single();
-    if (profile) {
-      setSelectedConv({ id: convId, updated_at: new Date().toISOString(), otherUser: profile });
-    }
+    setSelectedConv({ id: convId, updated_at: new Date().toISOString(), otherUser });
   };
-
-  const filteredUsers = followedUsers.filter((u) =>
-    u.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   return (
     <div className="flex h-[calc(100svh-3.5rem)] md:h-screen">
-      {/* Sidebar: conversation list */}
+      {/* Conversation list */}
       <div className={`${selectedConv ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[360px] border-r border-border`}>
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <span className="font-bold text-base">{user?.email?.split('@')[0]}</span>
-          <button onClick={() => setShowNewChat(true)} className="hover:text-muted-foreground transition-colors">
+          <span className="font-bold text-base">Messages</span>
+          <button onClick={() => { setShowNewChat(true); setSearchQuery(''); }} className="hover:text-muted-foreground transition-colors">
             <Edit size={22} strokeWidth={1.5} />
           </button>
         </div>
 
-        <div className="px-5 pt-3 pb-1">
-          <p className="font-semibold text-sm">Messages</p>
-        </div>
-
-        {/* Conversations */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center h-32">
@@ -270,7 +248,7 @@ export const MessagesPage = () => {
             <div className="text-center py-16 px-6 text-muted-foreground">
               <MessageCircle size={48} className="mx-auto mb-3 opacity-20" strokeWidth={1} />
               <p className="text-sm font-semibold text-foreground">No messages yet</p>
-              <p className="text-xs mt-1">Start a conversation with someone you follow</p>
+              <p className="text-xs mt-1">Start a conversation with anyone</p>
               <Button size="sm" className="mt-4" onClick={() => setShowNewChat(true)}>Send message</Button>
             </div>
           ) : (
@@ -278,10 +256,10 @@ export const MessagesPage = () => {
               <button
                 key={conv.id}
                 onClick={() => setSelectedConv(conv)}
-                className={`flex items-center gap-3 w-full px-5 py-3 hover:bg-muted/50 transition-colors ${selectedConv?.id === conv.id ? 'bg-muted/40' : ''}`}
+                className={`flex items-center gap-3 w-full px-5 py-3 hover:bg-muted/50 transition-colors text-left ${selectedConv?.id === conv.id ? 'bg-muted/40' : ''}`}
               >
                 <UserAvatar url={conv.otherUser.avatar_url} name={conv.otherUser.username} className="w-12 h-12" />
-                <div className="flex-1 min-w-0 text-left">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">{conv.otherUser.username}</p>
                   {conv.lastMessage && (
                     <p className="text-xs text-muted-foreground truncate">
@@ -298,20 +276,16 @@ export const MessagesPage = () => {
       {/* Chat area */}
       {selectedConv ? (
         <div className="flex flex-col flex-1 min-w-0">
-          {/* Chat header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
             <button onClick={() => setSelectedConv(null)} className="md:hidden mr-1 hover:text-muted-foreground">
               <ArrowLeft size={20} />
             </button>
             <Link to={`/profile/${selectedConv.otherUser.id}`} className="flex items-center gap-3 flex-1 min-w-0">
               <UserAvatar url={selectedConv.otherUser.avatar_url} name={selectedConv.otherUser.username} className="w-10 h-10" />
-              <div className="min-w-0">
-                <p className="font-semibold text-sm">{selectedConv.otherUser.username}</p>
-              </div>
+              <p className="font-semibold text-sm">{selectedConv.otherUser.username}</p>
             </Link>
           </div>
 
-          {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
             {messages.length === 0 && (
               <div className="text-center py-12 text-muted-foreground">
@@ -324,13 +298,9 @@ export const MessagesPage = () => {
               const isMe = msg.sender_id === user?.id;
               return (
                 <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      isMe
-                        ? 'bg-primary text-primary-foreground rounded-br-md'
-                        : 'bg-muted text-foreground rounded-bl-md'
-                    }`}
-                  >
+                  <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    isMe ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'
+                  }`}>
                     <p>{msg.content}</p>
                   </div>
                 </div>
@@ -339,7 +309,6 @@ export const MessagesPage = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
           <form onSubmit={sendMessage} className="flex items-center gap-3 px-4 py-3 border-t border-border">
             <input
               type="text"
@@ -359,7 +328,7 @@ export const MessagesPage = () => {
         <div className="hidden md:flex flex-col flex-1 items-center justify-center text-muted-foreground gap-2">
           <MessageCircle size={64} strokeWidth={1} className="opacity-20 mb-2" />
           <p className="font-semibold text-lg text-foreground">Your Messages</p>
-          <p className="text-sm">Send private photos and messages to a friend.</p>
+          <p className="text-sm">Send private messages to anyone.</p>
           <Button className="mt-3" onClick={() => setShowNewChat(true)}>Send message</Button>
         </div>
       )}
@@ -376,22 +345,22 @@ export const MessagesPage = () => {
               <input
                 autoFocus
                 type="text"
-                placeholder="Search following..."
+                placeholder="Search by username..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-sm outline-none bg-muted rounded-lg px-3 py-2 placeholder:text-muted-foreground"
               />
             </div>
             <div className="max-h-72 overflow-y-auto">
-              {filteredUsers.length === 0 ? (
-                <p className="text-center text-sm text-muted-foreground py-8">
-                  {followedUsers.length === 0 ? 'Follow someone to message them' : 'No users found'}
-                </p>
+              {!searchQuery.trim() ? (
+                <p className="text-center text-sm text-muted-foreground py-8">Type a username to search</p>
+              ) : searchResults.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">No users found</p>
               ) : (
-                filteredUsers.map((u) => (
+                searchResults.map((u) => (
                   <button
                     key={u.id}
-                    onClick={() => startConversation(u.id)}
+                    onClick={() => startConversation(u)}
                     className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted transition-colors"
                   >
                     <UserAvatar url={u.avatar_url} name={u.username} className="w-10 h-10" />
