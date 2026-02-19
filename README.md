@@ -1,6 +1,5 @@
-# Insta from Meesho
-
-Insta from Meesho is a full-stack social media web application inspired by Instagram. It is built with React and TypeScript on the frontend, and Supabase for authentication, database, storage, and real-time messaging.
+INSTA CLONE
+Insta Clone is a full-stack social media web application inspired by Instagram. It is built with React and TypeScript on the frontend, and Supabase for authentication, database, storage, and real-time messaging.
 
 ## Executive Summary
 
