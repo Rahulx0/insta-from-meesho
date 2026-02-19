@@ -7,6 +7,7 @@ import { ExplorePage } from '@/components/ExplorePage';
 import { CreatePost } from '@/components/CreatePost';
 import { ProfilePage } from '@/components/ProfilePage';
 import { ActivityPage } from '@/components/ActivityPage';
+import { MessagesPage } from '@/components/MessagesPage';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -33,6 +34,7 @@ const Index = () => {
           <Route path="/create" element={<CreatePost />} />
           <Route path="/profile/:userId" element={<ProfilePage />} />
           <Route path="/activity" element={<ActivityPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
         </Routes>
       </main>
     </div>

@@ -29,12 +29,17 @@ export const CreatePost = () => {
     setLoading(true);
 
     try {
-      const fileExt = image.name.split('.').pop();
+      const fileExt = image.name.split('.').pop()?.toLowerCase() || 'jpg';
       const filePath = `${user.id}/${Date.now()}.${fileExt}`;
 
+      // Upload to storage
       const { error: uploadError } = await supabase.storage
         .from('posts')
-        .upload(filePath, image);
+        .upload(filePath, image, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: image.type,
+        });
 
       if (uploadError) throw uploadError;
 
@@ -53,7 +58,8 @@ export const CreatePost = () => {
       toast({ title: 'Post shared!' });
       navigate('/');
     } catch (error: any) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      console.error('Upload error:', error);
+      toast({ title: 'Error uploading', description: error.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -80,7 +86,7 @@ export const CreatePost = () => {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               className="hidden"
               onChange={handleFileChange}
             />
